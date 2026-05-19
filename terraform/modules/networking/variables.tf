@@ -29,5 +29,5 @@ variable "private_subnet_cidrs" {
 variable "availability_zones" {
   description = "AWS availability zones for subnet placement"
   type        = list(string)
-  default     = ["us-east-1a", "us-east-1b"]
+  default     = ["eu-north-1a", "eu-north-1b"]
 }
