@@ -1,0 +1,19 @@
+# Terraform state — never commit
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+tfplan
+plan_output.txt
+outputs.json
+
+# Secrets
+*.tfvars
+!terraform.tfvars.example
+*.env
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db

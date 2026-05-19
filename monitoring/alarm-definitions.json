@@ -1,0 +1,85 @@
+[
+  {
+    "AlarmName": "muchtodo-production-high-cpu",
+    "AlarmDescription": "Backend ASG CPU utilization exceeded 70% for 10 minutes",
+    "Namespace": "AWS/EC2",
+    "MetricName": "CPUUtilization",
+    "Dimensions": [
+      { "Name": "AutoScalingGroupName", "Value": "muchtodo-production-asg" }
+    ],
+    "Statistic": "Average",
+    "Period": 300,
+    "EvaluationPeriods": 2,
+    "Threshold": 70,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "AlarmActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "OKActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "muchtodo-production-alb-5xx",
+    "AlarmDescription": "ALB is returning more than 10 HTTP 5xx errors per minute",
+    "Namespace": "AWS/ApplicationELB",
+    "MetricName": "HTTPCode_Target_5XX_Count",
+    "Dimensions": [
+      { "Name": "LoadBalancer", "Value": "app/muchtodo-production-alb/REPLACE_ME" }
+    ],
+    "Statistic": "Sum",
+    "Period": 60,
+    "EvaluationPeriods": 1,
+    "Threshold": 10,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "AlarmActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "muchtodo-production-alb-latency",
+    "AlarmDescription": "ALB p95 target response time exceeded 2 seconds",
+    "Namespace": "AWS/ApplicationELB",
+    "MetricName": "TargetResponseTime",
+    "Dimensions": [
+      { "Name": "LoadBalancer", "Value": "app/muchtodo-production-alb/REPLACE_ME" }
+    ],
+    "ExtendedStatistic": "p95",
+    "Period": 60,
+    "EvaluationPeriods": 2,
+    "Threshold": 2,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "AlarmActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "muchtodo-production-redis-cpu",
+    "AlarmDescription": "ElastiCache Redis CPU utilization exceeded 75%",
+    "Namespace": "AWS/ElastiCache",
+    "MetricName": "CPUUtilization",
+    "Dimensions": [
+      { "Name": "CacheClusterId", "Value": "muchtodo-production-redis" }
+    ],
+    "Statistic": "Average",
+    "Period": 300,
+    "EvaluationPeriods": 2,
+    "Threshold": 75,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "AlarmActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "TreatMissingData": "notBreaching"
+  },
+  {
+    "AlarmName": "muchtodo-production-unhealthy-targets",
+    "AlarmDescription": "ALB has unhealthy targets (app may be down)",
+    "Namespace": "AWS/ApplicationELB",
+    "MetricName": "UnHealthyHostCount",
+    "Dimensions": [
+      { "Name": "LoadBalancer", "Value": "app/muchtodo-production-alb/REPLACE_ME" },
+      { "Name": "TargetGroup",  "Value": "targetgroup/muchtodo-production-tg/REPLACE_ME" }
+    ],
+    "Statistic": "Average",
+    "Period": 60,
+    "EvaluationPeriods": 2,
+    "Threshold": 0,
+    "ComparisonOperator": "GreaterThanThreshold",
+    "AlarmActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "OKActions": ["arn:aws:sns:us-east-1:ACCOUNT_ID:muchtodo-production-alerts"],
+    "TreatMissingData": "breaching"
+  }
+]

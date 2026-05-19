@@ -1,0 +1,110 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "ALB - Request Count",
+        "view": "timeSeries",
+        "stacked": false,
+        "metrics": [
+          ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME"]
+        ],
+        "period": 60,
+        "stat": "Sum",
+        "region": "us-east-1"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "ALB - HTTP 5xx Error Rate",
+        "view": "timeSeries",
+        "metrics": [
+          ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME", {"color": "#d62728"}],
+          ["AWS/ApplicationELB", "HTTPCode_Target_4XX_Count", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME", {"color": "#ff7f0e"}]
+        ],
+        "period": 60,
+        "stat": "Sum",
+        "region": "us-east-1"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "ALB - Target Response Time (p50 / p95 / p99)",
+        "view": "timeSeries",
+        "metrics": [
+          ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME", {"stat": "p50", "label": "p50"}],
+          ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME", {"stat": "p95", "label": "p95", "color": "#ff7f0e"}],
+          ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "app/muchtodo-production-alb/REPLACE_ME", {"stat": "p99", "label": "p99", "color": "#d62728"}]
+        ],
+        "period": 60,
+        "region": "us-east-1",
+        "yAxis": {"left": {"min": 0}}
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "EC2 ASG - CPU Utilization",
+        "view": "timeSeries",
+        "metrics": [
+          ["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "muchtodo-production-asg"]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "us-east-1",
+        "annotations": {
+          "horizontal": [{"label": "Scale-out threshold", "value": 70, "color": "#d62728"}]
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 12, "width": 12, "height": 6,
+      "properties": {
+        "title": "ElastiCache - Cache Hits vs Misses",
+        "view": "timeSeries",
+        "metrics": [
+          ["AWS/ElastiCache", "CacheHits",   "CacheClusterId", "muchtodo-production-redis", {"color": "#2ca02c"}],
+          ["AWS/ElastiCache", "CacheMisses", "CacheClusterId", "muchtodo-production-redis", {"color": "#d62728"}]
+        ],
+        "period": 60,
+        "stat": "Sum",
+        "region": "us-east-1"
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 12, "width": 12, "height": 6,
+      "properties": {
+        "title": "ElastiCache - CPU & Connections",
+        "view": "timeSeries",
+        "metrics": [
+          ["AWS/ElastiCache", "CPUUtilization",   "CacheClusterId", "muchtodo-production-redis"],
+          ["AWS/ElastiCache", "CurrConnections",  "CacheClusterId", "muchtodo-production-redis", {"yAxis": "right"}]
+        ],
+        "period": 300,
+        "stat": "Average",
+        "region": "us-east-1"
+      }
+    },
+    {
+      "type": "alarm",
+      "x": 0, "y": 18, "width": 24, "height": 2,
+      "properties": {
+        "title": "Active Alarms",
+        "alarms": [
+          "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:muchtodo-production-high-cpu",
+          "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:muchtodo-production-alb-5xx",
+          "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:muchtodo-production-alb-latency",
+          "arn:aws:cloudwatch:us-east-1:ACCOUNT_ID:alarm:muchtodo-production-redis-cpu"
+        ]
+      }
+    }
+  ]
+}

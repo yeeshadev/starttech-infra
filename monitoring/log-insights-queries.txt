@@ -1,0 +1,69 @@
+# CloudWatch Logs Insights queries for MuchToDo backend
+# Log group: /muchtodo/backend
+# ──────────────────────────────────────────────────────────────────────────────
+
+## 1. Error rate by hour
+## Shows how many ERROR-level log lines appeared each hour
+fields @timestamp, @message
+| filter @message like /\"level\":\"ERROR\"/
+| stats count() as error_count by bin(1h)
+| sort by bin(1h) desc
+
+## 2. Top slowest API endpoints (requires JSON structured logs with duration_ms field)
+fields @timestamp, method, path, status, duration_ms
+| filter ispresent(duration_ms)
+| stats avg(duration_ms) as avg_ms, max(duration_ms) as max_ms, count() as requests
+    by path, method
+| sort avg_ms desc
+| limit 20
+
+## 3. Failed authentication attempts (login failures)
+fields @timestamp, @message
+| filter path = "/auth/login" and status = 401
+| stats count() as failed_logins by bin(5m)
+| sort by bin(5m) desc
+
+## 4. HTTP 5xx responses in the last hour
+fields @timestamp, method, path, status, @message
+| filter status >= 500
+| sort @timestamp desc
+| limit 50
+
+## 5. Request volume by endpoint
+fields @timestamp, method, path, status
+| filter ispresent(path)
+| stats count() as requests by path, method, status
+| sort requests desc
+| limit 30
+
+## 6. P95 response time over the last 6 hours
+fields @timestamp, duration_ms
+| filter ispresent(duration_ms)
+| stats pct(duration_ms, 95) as p95_ms, pct(duration_ms, 50) as p50_ms, avg(duration_ms) as avg_ms
+    by bin(10m)
+| sort by bin(10m) desc
+
+## 7. New user registrations per hour
+fields @timestamp, @message
+| filter path = "/auth/register" and status = 201
+| stats count() as registrations by bin(1h)
+| sort by bin(1h) desc
+
+## 8. Application errors with full context (last 100 errors)
+fields @timestamp, level, msg, error, path, method, user_id
+| filter level = "ERROR"
+| sort @timestamp desc
+| limit 100
+
+## 9. Cache hit/miss ratio from application logs
+## (If app logs cache operations as: {"event":"cache_hit"} or {"event":"cache_miss"})
+fields @timestamp, event
+| filter event in ["cache_hit", "cache_miss"]
+| stats count() as total by event, bin(5m)
+| sort by bin(5m) desc
+
+## 10. Active users in the last 24 hours (unique user_id in logs)
+fields @timestamp, user_id
+| filter ispresent(user_id) and user_id != ""
+| stats count_distinct(user_id) as active_users by bin(1h)
+| sort by bin(1h) desc
