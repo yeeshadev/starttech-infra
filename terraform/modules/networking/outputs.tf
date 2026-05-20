@@ -9,7 +9,7 @@ output "public_subnet_ids" {
 }
 
 output "private_subnet_ids" {
-  description = "IDs of the private subnets"
+  description = "IDs of the private subnets (for ElastiCache)"
   value       = aws_subnet.private[*].id
 }
 

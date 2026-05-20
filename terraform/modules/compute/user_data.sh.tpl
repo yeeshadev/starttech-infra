@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ── System update & Docker ────────────────────────────────────────────────────
 yum update -y
-yum install -y docker amazon-cloudwatch-agent aws-cli
+yum install -y docker aws-cli
 
 systemctl enable docker
 systemctl start docker
@@ -16,7 +16,7 @@ MONGO_URI=${mongo_uri}
 DB_NAME=much_todo_db
 JWT_SECRET_KEY=${jwt_secret_key}
 JWT_EXPIRATION_HOURS=72
-ENABLE_CACHE=${enable_cache}
+ENABLE_CACHE=false
 REDIS_ADDR=${redis_addr}
 REDIS_PASSWORD=${redis_password}
 LOG_LEVEL=INFO
@@ -41,45 +41,7 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   --env-file /etc/muchtodo.env \
-  --log-driver=awslogs \
-  --log-opt awslogs-region="${aws_region}" \
-  --log-opt awslogs-group="${log_group_name}" \
-  --log-opt awslogs-create-group=true \
   "$IMAGE"
 
-# ── CloudWatch agent config ───────────────────────────────────────────────────
-mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
-cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWEOF'
-{
-  "agent": { "run_as_user": "root" },
-  "logs": {
-    "logs_collected": {
-      "files": {
-        "collect_list": [
-          {
-            "file_path": "/var/log/messages",
-            "log_group_name": "${log_group_name}",
-            "log_stream_name": "{instance_id}/system",
-            "timezone": "UTC"
-          }
-        ]
-      }
-    }
-  },
-  "metrics": {
-    "metrics_collected": {
-      "mem": { "measurement": ["mem_used_percent"] },
-      "disk": {
-        "measurement": ["used_percent"],
-        "resources": ["/"]
-      }
-    }
-  }
-}
-CWEOF
-
-/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-  -a fetch-config \
-  -m ec2 \
-  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
-  -s
+# Docker's awslogs driver streams container logs directly to CloudWatch
+# without needing the CloudWatch agent installed

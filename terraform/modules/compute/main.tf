@@ -80,6 +80,15 @@ resource "aws_launch_template" "backend" {
     enabled = true
   }
 
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 20
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
   user_data = base64encode(templatefile("${path.module}/user_data.sh.tpl", {
     aws_region         = var.aws_region
     ecr_repository_url = var.ecr_repository_url
@@ -159,7 +168,7 @@ resource "aws_autoscaling_group" "backend" {
   min_size            = var.asg_min_size
   max_size            = var.asg_max_size
   desired_capacity    = var.asg_desired_capacity
-  vpc_zone_identifier = var.private_subnet_ids
+  vpc_zone_identifier = var.public_subnet_ids
   target_group_arns   = [aws_lb_target_group.backend.arn]
   health_check_type   = "ELB"
 
