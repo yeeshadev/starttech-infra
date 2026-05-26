@@ -117,10 +117,9 @@ jobs:
     name: Apply
     runs-on: ubuntu-latest
     needs: plan
-    # Only apply on direct push to master/main or manual workflow_dispatch with action=apply
-    if: |
-      ((github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    # Apply only on manual workflow_dispatch with action=apply
+    # Never auto-apply on push — infrastructure changes require explicit human approval
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
     environment: production
     defaults:
       run:
