@@ -132,8 +132,8 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 12
         height = 6
         properties = {
-          title  = "ALB Request Count"
-          region = var.aws_region
+          title   = "ALB Request Count"
+          region  = var.aws_region
           metrics = [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", var.alb_arn_suffix]]
           stat    = "Sum"
           period  = 60
@@ -164,8 +164,8 @@ resource "aws_cloudwatch_dashboard" "main" {
         width  = 12
         height = 6
         properties = {
-          title  = "EC2 ASG CPU Utilization"
-          region = var.aws_region
+          title   = "EC2 ASG CPU Utilization"
+          region  = var.aws_region
           metrics = [["AWS/EC2", "CPUUtilization", "AutoScalingGroupName", var.asg_name]]
           stat    = "Average"
           period  = 300
