@@ -2,12 +2,12 @@ name: Infrastructure Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
     paths:
       - 'terraform/**'
       - '.github/workflows/infrastructure-deploy.yml'
   pull_request:
-    branches: [main]
+    branches: [master, main]
     paths:
       - 'terraform/**'
   workflow_dispatch:
@@ -80,7 +80,7 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -backend=false
 
       - name: Terraform Plan
         id: plan
