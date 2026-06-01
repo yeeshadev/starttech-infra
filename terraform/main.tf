@@ -32,7 +32,7 @@ provider "aws" {
   }
 }
 
-# ── Networking ────────────────────────────────────────────────────────────────
+# Networking
 
 module "networking" {
   source = "./modules/networking"
@@ -41,7 +41,7 @@ module "networking" {
   environment  = var.environment
 }
 
-# ── Storage (S3, CloudFront, ECR, ElastiCache) ────────────────────────────────
+# Storage (S3, CloudFront, ECR, ElastiCache) 
 
 module "storage" {
   source = "./modules/storage"
@@ -54,7 +54,7 @@ module "storage" {
   redis_password      = var.redis_password
 }
 
-# ── Compute (EC2 ASG, ALB) ────────────────────────────────────────────────────
+# Compute (EC2 ASG, ALB) 
 
 module "compute" {
   source = "./modules/compute"
@@ -80,7 +80,7 @@ module "compute" {
   log_group_name       = "/muchtodo/backend"
 }
 
-# ── Monitoring ────────────────────────────────────────────────────────────────
+# Monitoring
 
 module "monitoring" {
   source = "./modules/monitoring"
