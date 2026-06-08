@@ -314,7 +314,7 @@ jobs:
       - name: Terraform Plan
         id: plan
         run: |
-          terraform plan -out=tfplan -no-color 2>&1 | tee plan_output.txt
+          terraform plan -lock=false -out=tfplan -no-color 2>&1 | tee plan_output.txt
           echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
 
       - name: Post Plan to PR
@@ -380,7 +380,7 @@ jobs:
           path: ${{ env.WORKING_DIR }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -lock=false -auto-approve tfplan
 
       - name: Output Summary
         run: |
