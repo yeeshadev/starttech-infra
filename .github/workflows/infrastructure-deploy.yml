@@ -124,6 +124,13 @@ jobs:
           set -euo pipefail
           PREFIX="muchtodo-production"
 
+          # Clear any stale state lock left by a previously crashed run
+          aws dynamodb delete-item \
+            --table-name "$STATE_TABLE" \
+            --region "$STATE_REGION" \
+            --key "{\"LockID\": {\"S\": \"${STATE_BUCKET}/production/terraform.tfstate\"}}" \
+            2>/dev/null || true
+
           import_if_missing() {
             local resource="$1" id="$2"
             if [ -z "$id" ] || [ "$id" = "None" ]; then
@@ -134,7 +141,9 @@ jobs:
               echo "OK (in state): $resource"
             else
               echo "Importing: $resource"
-              terraform import "$resource" "$id" || echo "WARN: import failed for $resource"
+              # -lock=false: imports are single-step writes; avoids stale locks on failure
+              terraform import -lock=false "$resource" "$id" \
+                || echo "WARN: import failed for $resource"
             fi
           }
 
@@ -154,33 +163,34 @@ jobs:
             --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_route_table.public" "$RT_ID"
 
-          # Public subnets (sorted for stable index assignment)
-          readarray -t PUB_IDS < <(aws ec2 describe-subnets \
-            --filters "Name=tag:Tier,Values=public" \
-                      "Name=tag:Project,Values=muchtodo" \
-                      "Name=tag:Environment,Values=production" \
-            --query "Subnets[*].SubnetId" --output text 2>/dev/null \
-            | tr '\t' '\n' | sort)
-          for i in "${!PUB_IDS[@]}"; do
-            import_if_missing "module.networking.aws_subnet.public[$i]" "${PUB_IDS[$i]}"
-            if [ -n "$RT_ID" ] && [ "$RT_ID" != "None" ]; then
+          # Public subnets — look up by exact CIDR (matches var.public_subnet_cidrs defaults)
+          # so we never try to import more subnets than the config defines
+          PUBLIC_CIDRS=("10.0.1.0/24" "10.0.2.0/24")
+          for i in "${!PUBLIC_CIDRS[@]}"; do
+            SUB_ID=$(aws ec2 describe-subnets \
+              --filters "Name=vpc-id,Values=${VPC_ID}" \
+                        "Name=cidr-block,Values=${PUBLIC_CIDRS[$i]}" \
+              --query "Subnets[0].SubnetId" --output text 2>/dev/null || true)
+            import_if_missing "module.networking.aws_subnet.public[$i]" "$SUB_ID"
+            if [ -n "$RT_ID" ] && [ "$RT_ID" != "None" ] && \
+               [ -n "$SUB_ID" ] && [ "$SUB_ID" != "None" ]; then
               ASSOC_ID=$(aws ec2 describe-route-tables \
                 --route-table-ids "$RT_ID" \
-                --query "RouteTables[0].Associations[?SubnetId=='${PUB_IDS[$i]}'].RouteTableAssociationId" \
+                --query "RouteTables[0].Associations[?SubnetId=='${SUB_ID}'].RouteTableAssociationId" \
                 --output text 2>/dev/null || true)
-              import_if_missing "module.networking.aws_route_table_association.public[$i]" "$ASSOC_ID"
+              import_if_missing \
+                "module.networking.aws_route_table_association.public[$i]" "$ASSOC_ID"
             fi
           done
 
-          # Private subnets
-          readarray -t PRIV_IDS < <(aws ec2 describe-subnets \
-            --filters "Name=tag:Tier,Values=private" \
-                      "Name=tag:Project,Values=muchtodo" \
-                      "Name=tag:Environment,Values=production" \
-            --query "Subnets[*].SubnetId" --output text 2>/dev/null \
-            | tr '\t' '\n' | sort)
-          for i in "${!PRIV_IDS[@]}"; do
-            import_if_missing "module.networking.aws_subnet.private[$i]" "${PRIV_IDS[$i]}"
+          # Private subnets — same approach with exact CIDRs
+          PRIVATE_CIDRS=("10.0.10.0/24" "10.0.11.0/24")
+          for i in "${!PRIVATE_CIDRS[@]}"; do
+            SUB_ID=$(aws ec2 describe-subnets \
+              --filters "Name=vpc-id,Values=${VPC_ID}" \
+                        "Name=cidr-block,Values=${PRIVATE_CIDRS[$i]}" \
+              --query "Subnets[0].SubnetId" --output text 2>/dev/null || true)
+            import_if_missing "module.networking.aws_subnet.private[$i]" "$SUB_ID"
           done
 
           ALB_SG=$(aws ec2 describe-security-groups \
