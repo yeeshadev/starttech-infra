@@ -8,16 +8,13 @@ terraform {
     }
   }
 
-  # Remote state backend — create the S3 bucket and DynamoDB table manually first,
-  # then uncomment this block and run `terraform init -migrate-state`.
-  #
-  # backend "s3" {
-  #   bucket         = "muchtodo-terraform-state"
-  #   key            = "production/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   dynamodb_table = "muchtodo-terraform-locks"
-  #   encrypt        = true
-  # }
+  backend "s3" {
+    bucket         = "muchtodo-terraform-state"
+    key            = "production/terraform.tfstate"
+    region         = "eu-north-1"
+    dynamodb_table = "muchtodo-terraform-locks"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
