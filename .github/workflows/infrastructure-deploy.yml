@@ -422,3 +422,48 @@ jobs:
         run: |
           echo "## Infrastructure Deployed" >> $GITHUB_STEP_SUMMARY
           terraform output -no-color >> $GITHUB_STEP_SUMMARY
+
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    needs: validate
+    # Destroy only on explicit manual dispatch — never on push or PR
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'eu-north-1' }}
+      TF_VAR_mongo_uri: ${{ secrets.TF_VAR_MONGO_URI }}
+      TF_VAR_jwt_secret_key: ${{ secrets.TF_VAR_JWT_SECRET_KEY }}
+      TF_VAR_redis_password: ${{ secrets.TF_VAR_REDIS_PASSWORD }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Clear stale state lock
+        run: |
+          aws dynamodb delete-item \
+            --table-name "$STATE_TABLE" \
+            --region "$STATE_REGION" \
+            --key "{\"LockID\": {\"S\": \"${STATE_BUCKET}/production/terraform.tfstate\"}}" \
+            2>/dev/null || true
+
+      - name: Terraform Destroy
+        run: terraform destroy -lock=false -auto-approve
+
+      - name: Destroy Summary
+        run: |
+          echo "## Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
+          echo "All muchtodo-production resources have been removed." >> $GITHUB_STEP_SUMMARY
