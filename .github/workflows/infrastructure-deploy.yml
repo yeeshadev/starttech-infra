@@ -147,36 +147,44 @@ jobs:
             fi
           }
 
-          # ── Networking: ensure state points to the VPC that the ALB lives in ──
-          # Multiple failed applies created duplicate VPCs. We pin to the VPC
-          # that owns the ALB so all resources are in the same VPC.
-          CORRECT_VPC="vpc-0dcab6af9eb3bc549"
-
+          # ── Networking: verify the VPC in state still exists in AWS ──
+          # After a destroy + re-apply the old VPC is gone. If the state references
+          # a VPC that no longer exists, clear all networking state so Terraform
+          # creates fresh resources instead of trying to import a deleted VPC.
           CURRENT_VPC=$(terraform state show module.networking.aws_vpc.main 2>/dev/null \
             | awk '/^ *id /{gsub(/"/, "", $3); print $3}' || true)
 
-          if [ -n "$CURRENT_VPC" ] && [ "$CURRENT_VPC" != "$CORRECT_VPC" ]; then
-            echo "Networking state points to wrong VPC ($CURRENT_VPC). Re-importing from $CORRECT_VPC..."
-            for r in \
-              "module.networking.aws_vpc.main" \
-              "module.networking.aws_internet_gateway.main" \
-              "module.networking.aws_route_table.public" \
-              "module.networking.aws_route_table_association.public[0]" \
-              "module.networking.aws_route_table_association.public[1]" \
-              "module.networking.aws_subnet.public[0]" \
-              "module.networking.aws_subnet.public[1]" \
-              "module.networking.aws_subnet.private[0]" \
-              "module.networking.aws_subnet.private[1]" \
-              "module.networking.aws_security_group.alb" \
-              "module.networking.aws_security_group.backend" \
-              "module.networking.aws_security_group.redis"; do
-              terraform state rm -lock=false "$r" 2>/dev/null || true
-            done
-          else
-            echo "Networking VPC is correct ($CORRECT_VPC) — skipping re-import"
+          if [ -n "$CURRENT_VPC" ]; then
+            VPC_EXISTS=$(aws ec2 describe-vpcs --vpc-ids "$CURRENT_VPC" \
+              --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)
+            if [ -z "$VPC_EXISTS" ] || [ "$VPC_EXISTS" = "None" ]; then
+              echo "VPC $CURRENT_VPC in state no longer exists in AWS — clearing networking state for fresh apply"
+              for r in \
+                "module.networking.aws_vpc.main" \
+                "module.networking.aws_internet_gateway.main" \
+                "module.networking.aws_route_table.public" \
+                "module.networking.aws_route_table_association.public[0]" \
+                "module.networking.aws_route_table_association.public[1]" \
+                "module.networking.aws_subnet.public[0]" \
+                "module.networking.aws_subnet.public[1]" \
+                "module.networking.aws_subnet.private[0]" \
+                "module.networking.aws_subnet.private[1]" \
+                "module.networking.aws_security_group.alb" \
+                "module.networking.aws_security_group.backend" \
+                "module.networking.aws_security_group.redis"; do
+                terraform state rm -lock=false "$r" 2>/dev/null || true
+              done
+              CURRENT_VPC=""
+            else
+              echo "VPC $CURRENT_VPC exists in AWS — state is consistent"
+            fi
           fi
 
-          VPC_ID="$CORRECT_VPC"
+          # Look up the live VPC by name tag if state was cleared or never had one
+          VPC_ID="${CURRENT_VPC:-$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=${PREFIX}-vpc" \
+            --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)}"
+
           import_if_missing "module.networking.aws_vpc.main" "$VPC_ID"
 
           IGW_ID=$(aws ec2 describe-internet-gateways \
