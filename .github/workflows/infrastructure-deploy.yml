@@ -378,7 +378,6 @@ jobs:
     # Apply only on manual workflow_dispatch with action=apply
     # Never auto-apply on push — infrastructure changes require explicit human approval
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
-    environment: production
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
