@@ -121,37 +121,185 @@ jobs:
 
       - name: Import orphaned resources
         run: |
+          set -euo pipefail
+          PREFIX="muchtodo-production"
+
           import_if_missing() {
-            local resource="$1"
-            local id="$2"
+            local resource="$1" id="$2"
+            if [ -z "$id" ] || [ "$id" = "None" ]; then
+              echo "Skip $resource — not found in AWS"
+              return
+            fi
             if terraform state show "$resource" >/dev/null 2>&1; then
-              echo "Already in state: $resource"
+              echo "OK (in state): $resource"
             else
-              echo "Importing: $resource (id=$id)"
-              terraform import "$resource" "$id"
+              echo "Importing: $resource"
+              terraform import "$resource" "$id" || echo "WARN: import failed for $resource"
             fi
           }
 
-          import_if_missing \
-            "module.compute.aws_iam_role.ec2" \
-            "muchtodo-production-ec2-role"
+          # ── Networking ──────────────────────────────────────────────────────
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=${PREFIX}-vpc" \
+            --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_vpc.main" "$VPC_ID"
 
-          OAC_ID=$(aws cloudfront list-origin-access-controls \
-            --query "OriginAccessControlList.Items[?Name=='muchtodo-production-oac'].Id" \
+          IGW_ID=$(aws ec2 describe-internet-gateways \
+            --filters "Name=tag:Name,Values=${PREFIX}-igw" \
+            --query "InternetGateways[0].InternetGatewayId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_internet_gateway.main" "$IGW_ID"
+
+          RT_ID=$(aws ec2 describe-route-tables \
+            --filters "Name=tag:Name,Values=${PREFIX}-public-rt" \
+            --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_route_table.public" "$RT_ID"
+
+          # Public subnets (sorted for stable index assignment)
+          readarray -t PUB_IDS < <(aws ec2 describe-subnets \
+            --filters "Name=tag:Tier,Values=public" \
+                      "Name=tag:Project,Values=muchtodo" \
+                      "Name=tag:Environment,Values=production" \
+            --query "Subnets[*].SubnetId" --output text 2>/dev/null \
+            | tr '\t' '\n' | sort)
+          for i in "${!PUB_IDS[@]}"; do
+            import_if_missing "module.networking.aws_subnet.public[$i]" "${PUB_IDS[$i]}"
+            if [ -n "$RT_ID" ] && [ "$RT_ID" != "None" ]; then
+              ASSOC_ID=$(aws ec2 describe-route-tables \
+                --route-table-ids "$RT_ID" \
+                --query "RouteTables[0].Associations[?SubnetId=='${PUB_IDS[$i]}'].RouteTableAssociationId" \
+                --output text 2>/dev/null || true)
+              import_if_missing "module.networking.aws_route_table_association.public[$i]" "$ASSOC_ID"
+            fi
+          done
+
+          # Private subnets
+          readarray -t PRIV_IDS < <(aws ec2 describe-subnets \
+            --filters "Name=tag:Tier,Values=private" \
+                      "Name=tag:Project,Values=muchtodo" \
+                      "Name=tag:Environment,Values=production" \
+            --query "Subnets[*].SubnetId" --output text 2>/dev/null \
+            | tr '\t' '\n' | sort)
+          for i in "${!PRIV_IDS[@]}"; do
+            import_if_missing "module.networking.aws_subnet.private[$i]" "${PRIV_IDS[$i]}"
+          done
+
+          ALB_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=tag:Name,Values=${PREFIX}-alb-sg" \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_security_group.alb" "$ALB_SG"
+
+          BACKEND_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=tag:Name,Values=${PREFIX}-backend-sg" \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_security_group.backend" "$BACKEND_SG"
+
+          REDIS_SG=$(aws ec2 describe-security-groups \
+            --filters "Name=tag:Name,Values=${PREFIX}-redis-sg" \
+            --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
+          import_if_missing "module.networking.aws_security_group.redis" "$REDIS_SG"
+
+          # ── Compute ─────────────────────────────────────────────────────────
+          import_if_missing "module.compute.aws_iam_role.ec2" \
+            "${PREFIX}-ec2-role"
+          import_if_missing "module.compute.aws_iam_role_policy_attachment.ecr_read" \
+            "${PREFIX}-ec2-role/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          import_if_missing "module.compute.aws_iam_role_policy_attachment.cloudwatch_agent" \
+            "${PREFIX}-ec2-role/arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+          import_if_missing "module.compute.aws_iam_role_policy_attachment.ssm" \
+            "${PREFIX}-ec2-role/arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          import_if_missing "module.compute.aws_iam_instance_profile.ec2" \
+            "${PREFIX}-ec2-profile"
+
+          LT_ID=$(aws ec2 describe-launch-templates \
+            --query "LaunchTemplates[?starts_with(LaunchTemplateName,'${PREFIX}-lt-')].LaunchTemplateId|[0]" \
             --output text 2>/dev/null || true)
-          if [ -n "$OAC_ID" ] && [ "$OAC_ID" != "None" ]; then
-            import_if_missing \
-              "module.storage.aws_cloudfront_origin_access_control.frontend" \
-              "$OAC_ID"
+          import_if_missing "module.compute.aws_launch_template.backend" "$LT_ID"
+
+          ALB_ARN=$(aws elbv2 describe-load-balancers \
+            --names "${PREFIX}-alb" \
+            --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || true)
+          import_if_missing "module.compute.aws_lb.backend" "$ALB_ARN"
+
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names "${PREFIX}-tg" \
+            --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || true)
+          import_if_missing "module.compute.aws_lb_target_group.backend" "$TG_ARN"
+
+          if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+            LISTENER_ARN=$(aws elbv2 describe-listeners \
+              --load-balancer-arn "$ALB_ARN" \
+              --query "Listeners[?Port==\`80\`].ListenerArn|[0]" \
+              --output text 2>/dev/null || true)
+            import_if_missing "module.compute.aws_lb_listener.http" "$LISTENER_ARN"
           fi
 
-          import_if_missing \
-            "module.storage.aws_elasticache_subnet_group.redis" \
-            "muchtodo-production-redis-subnet-grp"
+          import_if_missing "module.compute.aws_autoscaling_group.backend" \
+            "${PREFIX}-asg"
+          import_if_missing "module.compute.aws_autoscaling_policy.scale_out" \
+            "${PREFIX}-asg/${PREFIX}-scale-out"
 
-          import_if_missing \
-            "module.storage.aws_elasticache_parameter_group.redis" \
-            "muchtodo-production-redis-params"
+          # ── Storage ─────────────────────────────────────────────────────────
+          import_if_missing "module.storage.aws_ecr_repository.backend" \
+            "muchtodo-backend"
+          import_if_missing "module.storage.aws_ecr_lifecycle_policy.backend" \
+            "muchtodo-backend"
+          import_if_missing "module.storage.aws_s3_bucket.frontend" \
+            "${PREFIX}-frontend"
+          import_if_missing "module.storage.aws_s3_bucket_versioning.frontend" \
+            "${PREFIX}-frontend"
+          import_if_missing "module.storage.aws_s3_bucket_public_access_block.frontend" \
+            "${PREFIX}-frontend"
+          import_if_missing "module.storage.aws_s3_bucket_website_configuration.frontend" \
+            "${PREFIX}-frontend"
+          import_if_missing "module.storage.aws_s3_bucket_policy.frontend" \
+            "${PREFIX}-frontend"
+
+          OAC_ID=$(aws cloudfront list-origin-access-controls \
+            --query "OriginAccessControlList.Items[?Name=='${PREFIX}-oac'].Id" \
+            --output text 2>/dev/null || true)
+          import_if_missing "module.storage.aws_cloudfront_origin_access_control.frontend" "$OAC_ID"
+
+          CF_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Comment=='${PREFIX} frontend'].Id|[0]" \
+            --output text 2>/dev/null || true)
+          import_if_missing "module.storage.aws_cloudfront_distribution.frontend" "$CF_ID"
+
+          import_if_missing "module.storage.aws_elasticache_subnet_group.redis" \
+            "${PREFIX}-redis-subnet-grp"
+          import_if_missing "module.storage.aws_elasticache_parameter_group.redis" \
+            "${PREFIX}-redis-params"
+          import_if_missing "module.storage.aws_elasticache_cluster.redis" \
+            "${PREFIX}-redis"
+
+          # ── Monitoring ──────────────────────────────────────────────────────
+          import_if_missing "module.monitoring.aws_cloudwatch_log_group.backend" \
+            "/muchtodo/backend"
+          import_if_missing "module.monitoring.aws_cloudwatch_log_group.frontend" \
+            "/muchtodo/frontend"
+
+          SNS_ARN=$(aws sns list-topics \
+            --query "Topics[?ends_with(TopicArn,'${PREFIX}-alerts')].TopicArn|[0]" \
+            --output text 2>/dev/null || true)
+          import_if_missing "module.monitoring.aws_sns_topic.alerts" "$SNS_ARN"
+
+          if [ -n "$SNS_ARN" ] && [ "$SNS_ARN" != "None" ]; then
+            SUB_ARN=$(aws sns list-subscriptions-by-topic \
+              --topic-arn "$SNS_ARN" \
+              --query "Subscriptions[?Protocol=='email'].SubscriptionArn|[0]" \
+              --output text 2>/dev/null || true)
+            import_if_missing "module.monitoring.aws_sns_topic_subscription.email" "$SUB_ARN"
+          fi
+
+          import_if_missing "module.monitoring.aws_cloudwatch_metric_alarm.high_cpu" \
+            "${PREFIX}-high-cpu"
+          import_if_missing "module.monitoring.aws_cloudwatch_metric_alarm.alb_5xx" \
+            "${PREFIX}-alb-5xx"
+          import_if_missing "module.monitoring.aws_cloudwatch_metric_alarm.alb_latency" \
+            "${PREFIX}-alb-latency"
+          import_if_missing "module.monitoring.aws_cloudwatch_metric_alarm.redis_cpu" \
+            "${PREFIX}-redis-cpu"
+          import_if_missing "module.monitoring.aws_cloudwatch_dashboard.main" \
+            "${PREFIX}-dashboard"
 
       - name: Terraform Plan
         id: plan
