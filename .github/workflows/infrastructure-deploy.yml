@@ -147,24 +147,50 @@ jobs:
             fi
           }
 
-          # ── Networking ──────────────────────────────────────────────────────
-          VPC_ID=$(aws ec2 describe-vpcs \
-            --filters "Name=tag:Name,Values=${PREFIX}-vpc" \
-            --query "Vpcs[0].VpcId" --output text 2>/dev/null || true)
+          # ── Networking: ensure state points to the VPC that the ALB lives in ──
+          # Multiple failed applies created duplicate VPCs. We pin to the VPC
+          # that owns the ALB so all resources are in the same VPC.
+          CORRECT_VPC="vpc-0dcab6af9eb3bc549"
+
+          CURRENT_VPC=$(terraform state show module.networking.aws_vpc.main 2>/dev/null \
+            | awk '/^ *id /{gsub(/"/, "", $3); print $3}' || true)
+
+          if [ -n "$CURRENT_VPC" ] && [ "$CURRENT_VPC" != "$CORRECT_VPC" ]; then
+            echo "Networking state points to wrong VPC ($CURRENT_VPC). Re-importing from $CORRECT_VPC..."
+            for r in \
+              "module.networking.aws_vpc.main" \
+              "module.networking.aws_internet_gateway.main" \
+              "module.networking.aws_route_table.public" \
+              "module.networking.aws_route_table_association.public[0]" \
+              "module.networking.aws_route_table_association.public[1]" \
+              "module.networking.aws_subnet.public[0]" \
+              "module.networking.aws_subnet.public[1]" \
+              "module.networking.aws_subnet.private[0]" \
+              "module.networking.aws_subnet.private[1]" \
+              "module.networking.aws_security_group.alb" \
+              "module.networking.aws_security_group.backend" \
+              "module.networking.aws_security_group.redis"; do
+              terraform state rm -lock=false "$r" 2>/dev/null || true
+            done
+          else
+            echo "Networking VPC is correct ($CORRECT_VPC) — skipping re-import"
+          fi
+
+          VPC_ID="$CORRECT_VPC"
           import_if_missing "module.networking.aws_vpc.main" "$VPC_ID"
 
           IGW_ID=$(aws ec2 describe-internet-gateways \
-            --filters "Name=tag:Name,Values=${PREFIX}-igw" \
+            --filters "Name=attachment.vpc-id,Values=$VPC_ID" \
             --query "InternetGateways[0].InternetGatewayId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_internet_gateway.main" "$IGW_ID"
 
           RT_ID=$(aws ec2 describe-route-tables \
-            --filters "Name=tag:Name,Values=${PREFIX}-public-rt" \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+                      "Name=tag:Name,Values=${PREFIX}-public-rt" \
             --query "RouteTables[0].RouteTableId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_route_table.public" "$RT_ID"
 
-          # Public subnets — look up by exact CIDR (matches var.public_subnet_cidrs defaults)
-          # so we never try to import more subnets than the config defines
+          # Public subnets — look up by exact CIDR within the correct VPC
           PUBLIC_CIDRS=("10.0.1.0/24" "10.0.2.0/24")
           for i in "${!PUBLIC_CIDRS[@]}"; do
             SUB_ID=$(aws ec2 describe-subnets \
@@ -183,7 +209,7 @@ jobs:
             fi
           done
 
-          # Private subnets — same approach with exact CIDRs
+          # Private subnets — exact CIDRs within correct VPC
           PRIVATE_CIDRS=("10.0.10.0/24" "10.0.11.0/24")
           for i in "${!PRIVATE_CIDRS[@]}"; do
             SUB_ID=$(aws ec2 describe-subnets \
@@ -194,17 +220,20 @@ jobs:
           done
 
           ALB_SG=$(aws ec2 describe-security-groups \
-            --filters "Name=tag:Name,Values=${PREFIX}-alb-sg" \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+                      "Name=group-name,Values=${PREFIX}-alb-sg" \
             --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_security_group.alb" "$ALB_SG"
 
           BACKEND_SG=$(aws ec2 describe-security-groups \
-            --filters "Name=tag:Name,Values=${PREFIX}-backend-sg" \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+                      "Name=group-name,Values=${PREFIX}-backend-sg" \
             --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_security_group.backend" "$BACKEND_SG"
 
           REDIS_SG=$(aws ec2 describe-security-groups \
-            --filters "Name=tag:Name,Values=${PREFIX}-redis-sg" \
+            --filters "Name=vpc-id,Values=$VPC_ID" \
+                      "Name=group-name,Values=${PREFIX}-redis-sg" \
             --query "SecurityGroups[0].GroupId" --output text 2>/dev/null || true)
           import_if_missing "module.networking.aws_security_group.redis" "$REDIS_SG"
 
