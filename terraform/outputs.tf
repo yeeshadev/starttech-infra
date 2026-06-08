@@ -47,3 +47,8 @@ output "dashboard_url" {
   description = "CloudWatch dashboard URL"
   value       = "https://console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${module.monitoring.dashboard_name}"
 }
+
+output "region" {
+  description = "AWS region where infrastructure is deployed"
+  value       = var.aws_region
+}
